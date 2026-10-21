@@ -19,7 +19,7 @@ final class RequestValidator
         }
 
         // Visible ASCII, excluding commas to reject coalesced duplicate headers.
-        if (count($values) !== 1 || preg_match('/\A[\x21-\x2B\x2D-\x7E]{1,255}\z/D', $values[0]) !== 1) {
+        if (count($values) !== 1 || !is_string($values[0]) || preg_match('/\A[\x21-\x2B\x2D-\x7E]{1,255}\z/D', $values[0]) !== 1) {
             throw new InvalidIdempotencyRequest('IDEMPOTENCY_KEY_INVALID');
         }
 

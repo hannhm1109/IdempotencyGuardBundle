@@ -35,8 +35,9 @@ final class IdempotencyRecord
 
         $headers = [];
         foreach (self::REPLAY_HEADERS as $name) {
-            if ($response->headers->has($name)) {
-                $headers[$name] = $response->headers->all($name);
+            $values = array_values(array_filter($response->headers->all($name), is_string(...)));
+            if ($values !== []) {
+                $headers[$name] = $values;
             }
         }
 

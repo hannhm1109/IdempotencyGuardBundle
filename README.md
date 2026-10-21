@@ -1,5 +1,8 @@
 # IdempotencyGuardBundle
 
+[![CI](https://github.com/hannhm1109/IdempotencyGuardBundle/actions/workflows/ci.yml/badge.svg)](https://github.com/hannhm1109/IdempotencyGuardBundle/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 IdempotencyGuardBundle adds idempotency-key handling to selected Symfony HTTP operations so retries can reuse a completed response instead of executing a controller again.
 
 ```php
@@ -23,7 +26,9 @@ Same key + a different request      -> 409 Conflict
 Another request is using the key    -> 409 Conflict; retry later
 ```
 
-**Status: Phase 2 complete.** Targets PHP 8.1+ and Symfony 6.4. Safety and edge-case behavior is implemented and tested; publication and final review remain for Phase 3. See [the Phase 2 guide](docs/phase-2.md) for decisions, changed files, test coverage, interview topics, and the upgrade boundary from Phase 1. The [Phase 1 guide](docs/phase-1.md) records the original architecture.
+Targets PHP 8.1+ and Symfony 6.4. Prepared for an initial **0.1.0** release under the MIT license. See the [documentation](docs/index.md), [release notes](CHANGELOG.md), and [release procedure](docs/releasing.md). Repository preparation does not itself publish a Git tag or register a package on Packagist.
+
+The bundle is intended for bounded, buffered HTTP operations on one host. A business commit and replay-record persistence are separate operations: it does not guarantee exactly-once execution across crashes, cache eviction, or storage failures.
 
 ## Try the source
 
@@ -31,10 +36,17 @@ Another request is using the key    -> 409 Conflict; retry later
 git clone https://github.com/hannhm1109/IdempotencyGuardBundle.git
 cd IdempotencyGuardBundle
 composer install
-composer test
+composer check
+composer example
 ```
 
-The Composer package name is `hanane/idempotency-guard-bundle`. Until publication, install the development branch in a Symfony application using a VCS repository:
+The package name is `hanane/idempotency-guard-bundle`. Once version 0.1.0 is tagged and indexed on Packagist, installation is:
+
+```bash
+composer require "hanane/idempotency-guard-bundle:~0.1.0"
+```
+
+Before publication, install the development branch using a VCS repository:
 
 ```bash
 composer config repositories.idempotency-guard vcs https://github.com/hannhm1109/IdempotencyGuardBundle.git
@@ -92,7 +104,7 @@ Number tokens stay exact: `100`, `100.0`, and `1e2` intentionally differ. This c
 
 Only ordinary full 2xx responses are recorded. Redirects, 4xx/5xx responses, exceptions, partial responses (206 or `Content-Range`), encoded responses (`Content-Encoding`), streamed responses, and binary-file responses are not recorded. Use this bundle on controllers returning ordinary buffered responses; unsupported responses can execute again on retry. Keep compression outside the snapshot step, for example at the web server.
 
-Snapshots are limited to 1 MiB of response body. A larger body or a reported save failure returns `500 IDEMPOTENCY_UNAVAILABLE` without a completed record. The controller has already run in that case; the response is uncertain and a retry may repeat its effects. Bound response sizes before performing sensitive operations.
+Snapshots are limited to 1 MiB of response body. A larger body or a reported save failure returns `500 IDEMPOTENCY_UNAVAILABLE` without claiming a completed record. The controller has already run in that case; the response is uncertain and a retry may repeat its effects. Bound response sizes before performing sensitive operations.
 
 Replay restores the status, body, `Content-Type`, and `Location`. It does not restore `Set-Cookie`, arbitrary headers, transport headers, or credentials. Normal Symfony response listeners still run and can add fresh headers. Protected responses use `Cache-Control: private, no-store` for downstream HTTP caches; the internal idempotency record still exists.
 
@@ -116,10 +128,17 @@ This default is for a single host with a filesystem that supports `flock`. All w
 ## Development
 
 ```bash
-composer test
-composer validate --no-check-publish
+composer check                # Strict metadata validation, PHP lint, PHPStan, tests, quickstart
+composer audit                # Known dependency advisories
+composer test                 # PHPUnit only
+composer analyse              # PHPStan level 8 on src/
+composer example              # Runnable Symfony HttpKernel demonstration
 ```
 
 The test suite uses the real HttpKernel, a booted FrameworkBundle container, focused unit tests, a mock clock, and separate PHP processes sharing a filesystem cache and Symfony FlockStore. It covers JSON equivalence/precision, key validation, conflicts, exact TTL expiration, configuration wiring, user separation, `#[IsGranted]` ordering, response policy, safe headers/logging, failure cleanup, and concurrent exclusion followed by replay. It does not claim distributed or crash-atomic execution.
 
-Publication metadata, license, static analysis, compatibility expansion, and release preparation are scheduled for Phase 3.
+CI checks the declared Symfony 6.4 line on PHP 8.1-8.5, a Windows PHP 8.1 job, and lowest dependencies allowed by current Composer security advisories. Check the linked CI results before tagging a release. Symfony 7/8 compatibility is not declared.
+
+This is a reusable bundle, not a complete Symfony application; it has no application `bin/console`. Container wiring is verified by the FrameworkBundle integration tests. Use `php bin/console lint:container` in the consuming Symfony application after enabling the bundle.
+
+MIT licensed; see [LICENSE](LICENSE). Read [SECURITY.md](SECURITY.md) before reporting sensitive issues and [CONTRIBUTING.md](CONTRIBUTING.md) for development checks.

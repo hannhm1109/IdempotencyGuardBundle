@@ -230,7 +230,7 @@ final class IdempotencyTest extends TestCase
     }
 
     #[DataProvider('invalidKeys')]
-    public function testInvalidKeysNeverExecuteTheController(string|array $key): void
+    public function testInvalidKeysNeverExecuteTheController(string|array|null $key): void
     {
         $request = $this->request();
         $request->headers->set('Idempotency-Key', $key);
@@ -243,6 +243,7 @@ final class IdempotencyTest extends TestCase
     public static function invalidKeys(): iterable
     {
         yield 'empty' => [''];
+        yield 'null header bag value' => [null];
         yield 'oversized' => [str_repeat('a', 256)];
         yield 'space' => ['has space'];
         yield 'non-ASCII' => ['clé'];
@@ -435,6 +436,24 @@ final class IdempotencyTest extends TestCase
             self::assertSame(200, $this->kernel->handle($this->request(action: 'exception'))->getStatusCode());
         }
         self::assertSame(2, $this->controller->executions);
+    }
+
+    public function testExceptionAfterSnapshotDiscardsTheRecordBeforeReleasingTheLock(): void
+    {
+        $this->dispatcher->addListener(KernelEvents::RESPONSE, static function (ResponseEvent $event): void {
+            if ($event->getResponse()->getStatusCode() === 201) {
+                throw new \RuntimeException('A later response listener failed.');
+            }
+        }, -2048);
+        $this->dispatcher->addListener(KernelEvents::EXCEPTION, static function (ExceptionEvent $event): void {
+            $event->setResponse(new Response('Failed response processing', 500));
+        });
+        for ($attempt = 0; $attempt < 2; ++$attempt) {
+            self::assertSame(500, $this->kernel->handle($this->request())->getStatusCode());
+        }
+        self::assertSame(2, $this->controller->executions);
+        $key = (new StorageKeyFactory())->create($this->request(), 'order-123');
+        self::assertNull((new CacheIdempotencyStorage($this->pool, $this->clock))->find($key));
     }
 
     public function testResponseListenersRunAgainAndCannotMakeTheSnapshotPublic(): void

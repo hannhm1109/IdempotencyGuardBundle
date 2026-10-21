@@ -162,6 +162,7 @@ final class IdempotencySubscriber implements EventSubscriberInterface
                 $context->ttl,
                 $this->clock->now()->getTimestamp(),
             ));
+            $context->responseStored = true;
         } catch (\Throwable $exception) {
             $this->logFailure('Idempotency response persistence failed.', $exception);
             $event->setResponse($this->error('IDEMPOTENCY_UNAVAILABLE', 500));
@@ -172,7 +173,7 @@ final class IdempotencySubscriber implements EventSubscriberInterface
     public function onException(ExceptionEvent $event): void
     {
         // An exception converted into a 2xx by another listener must never be recorded.
-        $this->release($event->getRequest());
+        $this->release($event->getRequest(), discardResponse: true);
     }
 
     public function onFinishRequest(FinishRequestEvent $event): void
@@ -181,10 +182,18 @@ final class IdempotencySubscriber implements EventSubscriberInterface
         unset($this->protectedRequests[$event->getRequest()]);
     }
 
-    private function release(Request $request): void
+    private function release(Request $request, bool $discardResponse = false): void
     {
         $context = $this->contexts[$request] ?? null;
         if ($context !== null) {
+            if ($discardResponse && $context->responseStored) {
+                // A later response listener failed after our snapshot; still hold the lock.
+                try {
+                    $this->storage->delete($context->key);
+                } catch (\Throwable $exception) {
+                    $this->logFailure('Idempotency failed-response cleanup failed.', $exception);
+                }
+            }
             unset($this->contexts[$request]);
             $this->releaseLock($context->lock);
         }

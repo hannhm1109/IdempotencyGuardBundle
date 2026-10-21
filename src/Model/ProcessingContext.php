@@ -9,6 +9,8 @@ use Symfony\Component\Lock\LockInterface;
 /** @internal Request-local ownership of the lock and the pending response. */
 final class ProcessingContext
 {
+    public bool $responseStored = false;
+
     public function __construct(
         public readonly string $key,
         public readonly string $fingerprint,

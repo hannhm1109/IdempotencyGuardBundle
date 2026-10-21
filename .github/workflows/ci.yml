@@ -1,0 +1,43 @@
+name: CI
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: PHP ${{ matrix.php }} / ${{ matrix.os }} / ${{ matrix.dependencies }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        php: ['8.1', '8.2', '8.3', '8.4', '8.5']
+        dependencies: [latest]
+        include:
+          - os: ubuntu-latest
+            php: '8.1'
+            dependencies: lowest
+          - os: windows-latest
+            php: '8.1'
+            dependencies: latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@d52fc211a0436f8839a587b3b5b8efddab4744ea # v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, mbstring, xml, xmlwriter, zip
+          coverage: none
+          tools: composer:v2
+      - name: Resolve current dependencies
+        if: matrix.dependencies == 'latest'
+        run: composer update --prefer-dist --no-interaction --no-progress
+      - name: Resolve lowest dependencies allowed by current security advisories
+        if: matrix.dependencies == 'lowest'
+        run: composer update --prefer-lowest --prefer-stable --prefer-dist --no-interaction --no-progress
+      - run: composer check
+      - run: composer audit

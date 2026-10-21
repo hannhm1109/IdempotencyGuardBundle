@@ -46,6 +46,14 @@ final class IdempotencyRecordTest extends TestCase
         self::assertFalse($response->headers->has('Authorization'));
     }
 
+    public function testNullResponseHeaderValuesAreNotSnapshotted(): void
+    {
+        $response = new Response('{}');
+        $response->headers->set('Content-Type', null);
+        $record = IdempotencyRecord::capture('test_key', hash('sha256', 'request'), $response, 60, 100);
+        self::assertSame([], $record->responseHeaders);
+    }
+
     public function testTtlOverflowIsRejected(): void
     {
         $this->expectException(\InvalidArgumentException::class);
