@@ -3,7 +3,9 @@
 [![CI](https://github.com/hannhm1109/IdempotencyGuardBundle/actions/workflows/ci.yml/badge.svg)](https://github.com/hannhm1109/IdempotencyGuardBundle/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-IdempotencyGuardBundle adds idempotency-key handling to selected Symfony HTTP operations so retries can reuse a completed response instead of executing a controller again.
+Idempotency keys, request fingerprinting, and response replay for Symfony APIs. Protect selected controller actions so retried requests can reuse a completed response instead of executing the operation again.
+
+Clients retry after timeouts, connection loss, or an uncertain result. For endpoints creating orders, payments, or subscriptions, that retry can repeat a business operation. IdempotencyGuard keeps this request-handling logic outside your controllers using Symfony attributes, HttpKernel events, Cache, and Lock.
 
 ```php
 use Hanane\IdempotencyGuardBundle\Attribute\Idempotent;
@@ -26,32 +28,37 @@ Same key + a different request      -> 409 Conflict
 Another request is using the key    -> 409 Conflict; retry later
 ```
 
-Targets PHP 8.1+ and Symfony 6.4. Prepared for an initial **0.1.0** release under the MIT license. See the [documentation](docs/index.md), [release notes](CHANGELOG.md), and [release procedure](docs/releasing.md). Repository preparation does not itself publish a Git tag or register a package on Packagist.
+The initial release target is **0.1.0**, under the MIT license. See the [documentation](docs/index.md), [changelog](CHANGELOG.md), and [publishing guide](docs/releasing.md) for the GitHub release and Packagist submission steps.
 
 The bundle is intended for bounded, buffered HTTP operations on one host. A business commit and replay-record persistence are separate operations: it does not guarantee exactly-once execution across crashes, cache eviction, or storage failures.
 
-## Try the source
+## Requirements
+
+| Component | Supported |
+| --- | --- |
+| PHP | 8.1+; CI checks 8.1 through 8.5 |
+| Symfony | 6.4 |
+| Storage | A PSR-6 cache pool; `cache.app` by default |
+| Locking | A local filesystem supporting `flock`, shared by the application's workers |
+
+No Doctrine or Redis requirement. The package name is `hanane/idempotency-guard-bundle`; the namespace is `Hanane\IdempotencyGuardBundle`.
+
+## Installation
+
+After `v0.1.0` is tagged on GitHub and indexed on Packagist, install it in your Symfony application:
 
 ```bash
-git clone https://github.com/hannhm1109/IdempotencyGuardBundle.git
-cd IdempotencyGuardBundle
-composer install
-composer check
-composer example
+composer require hanane/idempotency-guard-bundle
 ```
 
-The package name is `hanane/idempotency-guard-bundle`. Once version 0.1.0 is tagged and indexed on Packagist, installation is:
-
-```bash
-composer require "hanane/idempotency-guard-bundle:~0.1.0"
-```
-
-Before publication, install the development branch using a VCS repository:
+Install it as a **regular runtime dependency**: idempotency protection must also run in production. Before Packagist submission, use the development branch directly from GitHub:
 
 ```bash
 composer config repositories.idempotency-guard vcs https://github.com/hannhm1109/IdempotencyGuardBundle.git
 composer require hanane/idempotency-guard-bundle:dev-main
 ```
+
+## Bundle registration and configuration
 
 Enable the bundle in `config/bundles.php` if your tooling has not enabled it:
 
@@ -71,13 +78,21 @@ idempotency_guard:
     storage: cache.app # A PSR-6 cache pool service, not a custom storage adapter ID.
 ```
 
-The attribute's `ttl` overrides `default_ttl`. To supply a completely different storage adapter, alias `Hanane\IdempotencyGuardBundle\Storage\IdempotencyStorageInterface` to your implementation in application services.
+The attribute's `ttl` overrides `default_ttl`. To supply a completely different storage adapter, alias `Hanane\IdempotencyGuardBundle\Storage\IdempotencyStorageInterface` to your implementation in application services. See the [Symfony usage guide](docs/symfony-usage.md) for a full controller example and a dedicated cache pool.
 
 ## Request behavior
 
 Protection applies only to main POST, PUT, PATCH, and DELETE requests whose controller method has `#[Idempotent]`. GET/HEAD and subrequests are left to normal Symfony handling. Use JSON or another raw-body representation. Parsed forms, URL-encoded forms, multipart uploads, encoded request bodies, and range requests are rejected before execution.
 
 Send one `Idempotency-Key` header containing 1-255 visible ASCII characters, excluding commas. UUIDs are suitable. Generate a new key for each operation and keep it when retrying that operation.
+
+```http
+POST /api/orders
+Idempotency-Key: order-123
+Content-Type: application/json
+
+{"amount":100,"currency":"MAD"}
+```
 
 | Situation | Result |
 | --- | --- |
@@ -127,6 +142,14 @@ This default is for a single host with a filesystem that supports `flock`. All w
 
 ## Development
 
+To work on the bundle itself:
+
+```bash
+git clone https://github.com/hannhm1109/IdempotencyGuardBundle.git
+cd IdempotencyGuardBundle
+composer install
+```
+
 ```bash
 composer check                # Strict metadata validation, PHP lint, PHPStan, tests, quickstart
 composer audit                # Known dependency advisories
@@ -135,10 +158,16 @@ composer analyse              # PHPStan level 8 on src/
 composer example              # Runnable Symfony HttpKernel demonstration
 ```
 
-The test suite uses the real HttpKernel, a booted FrameworkBundle container, focused unit tests, a mock clock, and separate PHP processes sharing a filesystem cache and Symfony FlockStore. It covers JSON equivalence/precision, key validation, conflicts, exact TTL expiration, configuration wiring, user separation, `#[IsGranted]` ordering, response policy, safe headers/logging, failure cleanup, and concurrent exclusion followed by replay. It does not claim distributed or crash-atomic execution.
+The suite contains **131 tests and 300 assertions**. It uses the real HttpKernel, a booted FrameworkBundle container, focused unit tests, a mock clock, and separate PHP processes sharing a filesystem cache and Symfony FlockStore. It covers JSON equivalence/precision, key validation, conflicts, exact TTL expiration, configuration wiring, user separation, `#[IsGranted]` ordering, response policy, safe headers/logging, failure cleanup, and concurrent exclusion followed by replay. It does not claim distributed or crash-atomic execution.
 
 CI checks the declared Symfony 6.4 line on PHP 8.1-8.5, a Windows PHP 8.1 job, and lowest dependencies allowed by current Composer security advisories. Check the linked CI results before tagging a release. Symfony 7/8 compatibility is not declared.
 
 This is a reusable bundle, not a complete Symfony application; it has no application `bin/console`. Container wiring is verified by the FrameworkBundle integration tests. Use `php bin/console lint:container` in the consuming Symfony application after enabling the bundle.
 
-MIT licensed; see [LICENSE](LICENSE). Read [SECURITY.md](SECURITY.md) before reporting sensitive issues and [CONTRIBUTING.md](CONTRIBUTING.md) for development checks.
+## Documentation and license
+
+- [Documentation index](docs/index.md) and [Symfony usage](docs/symfony-usage.md)
+- [Changelog](CHANGELOG.md) and [publishing on GitHub/Packagist](docs/releasing.md)
+- [Security policy](SECURITY.md) and [contributing](CONTRIBUTING.md)
+
+Released under the [MIT license](LICENSE).
