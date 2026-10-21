@@ -1,5 +1,7 @@
 # Phase 1: architecture and core idempotency
 
+This guide describes the Phase 1 checkpoint. For current normalization, configuration, safety behavior, and the Phase 1 upgrade boundary, read [the Phase 2 guide](phase-2.md).
+
 ## The smallest convincing V1
 
 One attribute, one request header, a deterministic request fingerprint, a completed response record, a PSR-6 storage adapter, and a Symfony lock are enough to demonstrate the core behavior. A real HttpKernel test must prove that two matching requests execute the controller once. No database adapter, processing-state machine, dashboard, queue, or retry engine is needed.

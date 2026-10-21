@@ -6,11 +6,15 @@ namespace Hanane\IdempotencyGuardBundle\Storage;
 
 use Hanane\IdempotencyGuardBundle\Model\IdempotencyRecord;
 use Psr\Cache\CacheItemPoolInterface;
+use Psr\Clock\ClockInterface;
+use Symfony\Component\Clock\NativeClock;
 
 final class CacheIdempotencyStorage implements IdempotencyStorageInterface
 {
-    public function __construct(private readonly CacheItemPoolInterface $pool)
-    {
+    public function __construct(
+        private readonly CacheItemPoolInterface $pool,
+        private readonly ClockInterface $clock = new NativeClock(),
+    ) {
     }
 
     public function find(string $key): ?IdempotencyRecord
@@ -25,7 +29,7 @@ final class CacheIdempotencyStorage implements IdempotencyStorageInterface
             throw new \RuntimeException('Invalid idempotency record in cache.');
         }
 
-        if ($record->expiresAt <= time()) {
+        if ($record->expiresAt <= $this->clock->now()->getTimestamp()) {
             $this->delete($key);
 
             return null;

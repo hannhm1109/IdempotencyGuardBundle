@@ -34,6 +34,28 @@ final class OrderController
     }
 
     #[Idempotent]
+    public function defaultTtl(Request $request): JsonResponse
+    {
+        return $this->create($request);
+    }
+
+    #[Idempotent]
+    public function respond(Request $request): Response
+    {
+        ++$this->executions;
+
+        return $request->attributes->get('test_response');
+    }
+
+    #[Idempotent]
+    public function typeError(): Response
+    {
+        ++$this->executions;
+
+        throw new \TypeError('Controller type error');
+    }
+
+    #[Idempotent]
     public function failure(): Response
     {
         ++$this->executions;

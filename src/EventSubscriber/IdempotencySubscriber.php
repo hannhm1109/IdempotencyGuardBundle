@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace Hanane\IdempotencyGuardBundle\EventSubscriber;
 
 use Hanane\IdempotencyGuardBundle\Attribute\Idempotent;
+use Hanane\IdempotencyGuardBundle\Exception\InvalidIdempotencyRequest;
 use Hanane\IdempotencyGuardBundle\Fingerprint\RequestFingerprint;
 use Hanane\IdempotencyGuardBundle\Key\StorageKeyFactory;
 use Hanane\IdempotencyGuardBundle\Model\IdempotencyRecord;
 use Hanane\IdempotencyGuardBundle\Model\ProcessingContext;
+use Hanane\IdempotencyGuardBundle\Request\RequestValidator;
 use Hanane\IdempotencyGuardBundle\Storage\IdempotencyStorageInterface;
+use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -29,6 +33,8 @@ final class IdempotencySubscriber implements EventSubscriberInterface
 {
     /** @var \WeakMap<Request, ProcessingContext> */
     private \WeakMap $contexts;
+    /** @var \WeakMap<Request, bool> */
+    private \WeakMap $protectedRequests;
 
     public function __construct(
         private readonly IdempotencyStorageInterface $storage,
@@ -37,8 +43,12 @@ final class IdempotencySubscriber implements EventSubscriberInterface
         private readonly LockFactory $locks,
         private readonly int $defaultTtl = 86400,
         private readonly ?LoggerInterface $logger = null,
+        private readonly string $headerName = 'Idempotency-Key',
+        private readonly RequestValidator $requests = new RequestValidator(),
+        private readonly ClockInterface $clock = new NativeClock(),
     ) {
         $this->contexts = new \WeakMap();
+        $this->protectedRequests = new \WeakMap();
     }
 
     public static function getSubscribedEvents(): array
@@ -68,32 +78,13 @@ final class IdempotencySubscriber implements EventSubscriberInterface
             return;
         }
 
-        $values = $request->headers->all('Idempotency-Key');
-        if ($values === []) {
-            $this->replaceController($event, $this->error('IDEMPOTENCY_KEY_REQUIRED', 400));
-
-            return;
-        }
-
-        // An opaque visible ASCII value, 1-255 bytes; commas reject coalesced duplicate headers.
-        if (count($values) !== 1 || preg_match('/\A[\x21-\x2B\x2D-\x7E]{1,255}\z/D', $values[0]) !== 1) {
-            $this->replaceController($event, $this->error('IDEMPOTENCY_KEY_INVALID', 400));
-
-            return;
-        }
-
-        // Raw-body fingerprints do not reliably describe parsed form fields or uploaded files.
-        if ($request->files->count() > 0 || $request->request->count() > 0
-            || str_starts_with(strtolower($request->headers->get('Content-Type', '')), 'multipart/')) {
-            $this->replaceController($event, $this->error('IDEMPOTENCY_BODY_UNSUPPORTED', 400));
-
-            return;
-        }
+        $this->protectedRequests[$request] = true;
 
         $lock = null;
         $acquired = false;
         try {
-            $key = $this->keys->create($request, $values[0]);
+            $clientKey = $this->requests->key($request, $this->headerName);
+            $key = $this->keys->create($request, $clientKey);
             $fingerprint = $this->fingerprint->generate($request);
             // The default FlockStore has no lease expiry during controller execution.
             $lock = $this->locks->createLock($key);
@@ -121,8 +112,21 @@ final class IdempotencySubscriber implements EventSubscriberInterface
                 $attribute->ttl ?? $this->defaultTtl,
                 $lock,
             );
+            $controller = $event->getController();
+            $attributes = $event->getAttributes();
+            // Also clean up TypeError/Error when a kernel does not catch all Throwables.
+            $event->setController(function (...$arguments) use ($controller, $request): mixed {
+                try {
+                    return $controller(...$arguments);
+                } catch (\Throwable $exception) {
+                    $this->release($request);
+                    throw $exception;
+                }
+            }, $attributes);
+        } catch (InvalidIdempotencyRequest $exception) {
+            $this->replaceController($event, $this->error($exception->errorCode, $exception->statusCode));
         } catch (\Throwable $exception) {
-            $this->logger?->error('Idempotency lookup or locking failed.', ['exception' => $exception]);
+            $this->logFailure('Idempotency lookup or locking failed.', $exception);
             $this->replaceController($event, $this->error('IDEMPOTENCY_UNAVAILABLE', 500));
         } finally {
             if ($acquired && $lock !== null && !isset($this->contexts[$request])) {
@@ -134,15 +138,19 @@ final class IdempotencySubscriber implements EventSubscriberInterface
     public function onResponse(ResponseEvent $event): void
     {
         $request = $event->getRequest();
+        if (isset($this->protectedRequests[$request])) {
+            // Apply after ordinary response listeners on originals, replays, and errors.
+            $event->getResponse()->headers->set('Cache-Control', 'private, no-store');
+        }
         $context = $this->contexts[$request] ?? null;
         if ($context === null) {
             return;
         }
 
         $response = $event->getResponse();
-        $response->headers->set('Cache-Control', 'private, no-store');
-
-        if (!$response->isSuccessful() || $response instanceof StreamedResponse || $response instanceof BinaryFileResponse) {
+        if (!$response->isSuccessful() || $response->getStatusCode() === 206 || $response->headers->has('Content-Range')
+            || $response->headers->has('Content-Encoding')
+            || $response instanceof StreamedResponse || $response instanceof BinaryFileResponse) {
             return;
         }
 
@@ -152,9 +160,10 @@ final class IdempotencySubscriber implements EventSubscriberInterface
                 $context->fingerprint,
                 $response,
                 $context->ttl,
+                $this->clock->now()->getTimestamp(),
             ));
         } catch (\Throwable $exception) {
-            $this->logger?->error('Idempotency response persistence failed.', ['exception' => $exception]);
+            $this->logFailure('Idempotency response persistence failed.', $exception);
             $event->setResponse($this->error('IDEMPOTENCY_UNAVAILABLE', 500));
         }
         // Keep ownership until finish_request, after the rest of the response listeners.
@@ -169,6 +178,7 @@ final class IdempotencySubscriber implements EventSubscriberInterface
     public function onFinishRequest(FinishRequestEvent $event): void
     {
         $this->release($event->getRequest());
+        unset($this->protectedRequests[$event->getRequest()]);
     }
 
     private function release(Request $request): void
@@ -185,7 +195,17 @@ final class IdempotencySubscriber implements EventSubscriberInterface
         try {
             $lock->release();
         } catch (\Throwable $exception) {
-            $this->logger?->error('Idempotency lock release failed.', ['exception' => $exception]);
+            $this->logFailure('Idempotency lock release failed.', $exception);
+        }
+    }
+
+    private function logFailure(string $message, \Throwable $exception): void
+    {
+        try {
+            // Backend exception messages/traces can contain keys, credentials, or payloads.
+            $this->logger?->error($message, ['exception_class' => $exception::class]);
+        } catch (\Throwable) {
+            // A broken logger must not bypass fail-closed behavior or lock cleanup.
         }
     }
 

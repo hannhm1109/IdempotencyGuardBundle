@@ -9,6 +9,9 @@ use Symfony\Component\HttpFoundation\Response;
 /** A completed response snapshot; the lock represents in-flight work. */
 final class IdempotencyRecord
 {
+    public const MAX_BODY_BYTES = 1048576;
+    private const REPLAY_HEADERS = ['content-type', 'location'];
+
     /** @param array<string, list<string>> $responseHeaders */
     public function __construct(
         public readonly string $key,
@@ -21,16 +24,21 @@ final class IdempotencyRecord
     ) {
     }
 
-    public static function capture(string $key, string $fingerprint, Response $response, int $ttl): self
+    public static function capture(string $key, string $fingerprint, Response $response, int $ttl, int $now): self
     {
+        if ($ttl < 1 || $ttl > PHP_INT_MAX - $now) {
+            throw new \InvalidArgumentException('Invalid idempotency response TTL.');
+        }
+        if (strlen((string) $response->getContent()) > self::MAX_BODY_BYTES) {
+            throw new \RuntimeException('The idempotency response exceeds the snapshot limit.');
+        }
+
         $headers = [];
-        foreach (['content-type', 'location'] as $name) {
+        foreach (self::REPLAY_HEADERS as $name) {
             if ($response->headers->has($name)) {
                 $headers[$name] = $response->headers->all($name);
             }
         }
-
-        $now = time();
 
         return new self(
             $key,
@@ -45,6 +53,14 @@ final class IdempotencyRecord
 
     public function toResponse(): Response
     {
-        return new Response($this->responseBody, $this->responseStatusCode, $this->responseHeaders);
+        // Apply the allowlist again at the adapter boundary, including custom adapters.
+        $headers = [];
+        foreach ($this->responseHeaders as $name => $values) {
+            if (in_array(strtolower($name), self::REPLAY_HEADERS, true)) {
+                $headers[$name] = $values;
+            }
+        }
+
+        return new Response($this->responseBody, $this->responseStatusCode, $headers);
     }
 }

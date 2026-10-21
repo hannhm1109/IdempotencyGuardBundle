@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Hanane\IdempotencyGuardBundle\DependencyInjection;
 
 use Hanane\IdempotencyGuardBundle\EventSubscriber\IdempotencySubscriber;
+use Hanane\IdempotencyGuardBundle\Fingerprint\JsonBodyNormalizer;
 use Hanane\IdempotencyGuardBundle\Fingerprint\RequestFingerprint;
 use Hanane\IdempotencyGuardBundle\Key\StorageKeyFactory;
+use Hanane\IdempotencyGuardBundle\Request\RequestValidator;
 use Hanane\IdempotencyGuardBundle\Storage\CacheIdempotencyStorage;
 use Hanane\IdempotencyGuardBundle\Storage\IdempotencyStorageInterface;
+use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
@@ -22,11 +25,14 @@ final class IdempotencyGuardExtension extends Extension
     {
         $config = $this->processConfiguration(new Configuration(), $configs);
 
-        $container->register(RequestFingerprint::class);
+        $container->register('idempotency_guard.clock', NativeClock::class);
+        $container->register(RequestValidator::class);
+        $container->register(JsonBodyNormalizer::class);
+        $container->register(RequestFingerprint::class)->setArguments([new Reference(JsonBodyNormalizer::class)]);
         $container->register(StorageKeyFactory::class)
             ->setArguments([new Reference('security.token_storage', ContainerInterface::NULL_ON_INVALID_REFERENCE)]);
         $container->register(CacheIdempotencyStorage::class)
-            ->setArguments([new Reference($config['storage'])]);
+            ->setArguments([new Reference($config['storage']), new Reference('idempotency_guard.clock')]);
         if (!$container->hasAlias(IdempotencyStorageInterface::class) && !$container->hasDefinition(IdempotencyStorageInterface::class)) {
             $container->setAlias(IdempotencyStorageInterface::class, CacheIdempotencyStorage::class);
         }
@@ -44,6 +50,9 @@ final class IdempotencyGuardExtension extends Extension
                 new Reference('idempotency_guard.lock_factory'),
                 $config['default_ttl'],
                 new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                $config['header_name'],
+                new Reference(RequestValidator::class),
+                new Reference('idempotency_guard.clock'),
             ])
             ->addTag('kernel.event_subscriber');
     }

@@ -23,8 +23,9 @@ final class StorageKeyFactory
             ? ['anonymous']
             : ['user', $firewall, $user::class, $user->getUserIdentifier()];
 
-        return 'ig_'.hash('sha256', serialize([
-            'v1',
+        // PSR-6 guarantees support for keys up to 64 characters; keep the full digest.
+        return hash('sha256', serialize([
+            'idempotency-guard-key-v2',
             $request->getSchemeAndHttpHost(),
             $request->getBaseUrl(),
             $scope,
