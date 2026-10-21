@@ -28,7 +28,7 @@ Same key + a different request      -> 409 Conflict
 Another request is using the key    -> 409 Conflict; retry later
 ```
 
-The initial release target is **0.1.0**, under the MIT license. See the [documentation](docs/index.md), [changelog](CHANGELOG.md), and [publishing guide](docs/releasing.md) for the GitHub release and Packagist submission steps.
+The initial release is **[v0.1.0](https://github.com/hannhm1109/IdempotencyGuardBundle/releases/tag/v0.1.0)**, under the MIT license. See the [documentation](docs/index.md), [changelog](CHANGELOG.md), and [publishing guide](docs/releasing.md). Packagist registration is a separate step.
 
 The bundle is intended for bounded, buffered HTTP operations on one host. A business commit and replay-record persistence are separate operations: it does not guarantee exactly-once execution across crashes, cache eviction, or storage failures.
 
@@ -45,17 +45,17 @@ No Doctrine or Redis requirement. The package name is `hanane/idempotency-guard-
 
 ## Installation
 
-After `v0.1.0` is tagged on GitHub and indexed on Packagist, install it in your Symfony application:
+Once `v0.1.0` is indexed on Packagist, install it in your Symfony application:
 
 ```bash
 composer require hanane/idempotency-guard-bundle
 ```
 
-Install it as a **regular runtime dependency**: idempotency protection must also run in production. Before Packagist submission, use the development branch directly from GitHub:
+Install it as a **regular runtime dependency**: idempotency protection must also run in production. Until Packagist indexes it, install the released tag directly from GitHub:
 
 ```bash
 composer config repositories.idempotency-guard vcs https://github.com/hannhm1109/IdempotencyGuardBundle.git
-composer require hanane/idempotency-guard-bundle:dev-main
+composer require "hanane/idempotency-guard-bundle:~0.1.0"
 ```
 
 ## Bundle registration and configuration

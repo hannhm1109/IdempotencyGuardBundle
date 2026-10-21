@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — prepared for 0.1.0
+## 0.1.0 — 2026-10-21
 
 ### Initial behavior
 
@@ -24,4 +24,4 @@
 - Strict Composer validation, PHP lint, PHPStan level 8, dependency audit, and a pinned GitHub Actions matrix.
 - Distribution rules exclude development tools, tests, dependencies, and generated files.
 
-Phase 1 was a development checkpoint with a different key/fingerprint format. See [the coordinated upgrade requirements](docs/phase-2.md#upgrading-from-the-phase-1-checkpoint). No stable release or Packagist registration is implied by this changelog entry.
+Phase 1 was a development checkpoint with a different key/fingerprint format. See [the coordinated upgrade requirements](docs/phase-2.md#upgrading-from-the-phase-1-checkpoint). Packagist registration is separate from the GitHub release.

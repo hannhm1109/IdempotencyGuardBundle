@@ -2,7 +2,7 @@
 
 ## Supported scope
 
-The planned initial release line is 0.1.x on PHP 8.1+ and Symfony 6.4. Use the latest patch dependencies supported by your PHP runtime and inspect the repository's CI status before upgrading. Symfony 7/8 support is not declared. No support duration or independent security audit is promised by this repository.
+The initial release line is 0.1.x on PHP 8.1+ and Symfony 6.4. Use the latest patch dependencies supported by your PHP runtime and inspect the repository's CI status before upgrading. Symfony 7/8 support is not declared. No support duration or independent security audit is promised by this repository.
 
 ## Boundaries that affect correctness
 
