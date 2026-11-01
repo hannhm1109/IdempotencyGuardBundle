@@ -22,7 +22,7 @@
         "psr/clock": "^1.0",
         "psr/log": "^3.0",
         "symfony/cache": "^6.4",
-        "symfony/clock": "^6.4",
+        "symfony/clock": "^8.1",
         "symfony/config": "^6.4",
         "symfony/dependency-injection": "^6.4",
         "symfony/event-dispatcher": "^6.4",
